@@ -55,4 +55,21 @@ class LlamaEmbeddingClassifier(torch.nn.Module):
 		3) Take the log-softmax of the logits and return log-probabilities over all classes.
 		'''
 		# todo
-		raise NotImplementedError
+		# 1️⃣ Llama 모델을 통해 임베딩(hidden state) 추출
+		hidden_states, _ = self.llama(input_ids)  # (batch_size, seq_len, hidden_dim)
+
+		# 2️⃣ 마지막 토큰의 hidden state 가져오기
+		last_token_hidden_state = hidden_states[:, -1, :]  # (batch_size, hidden_dim)
+
+		# 3️⃣ 드롭아웃 적용 (훈련 시 overfitting 방지)
+		last_token_hidden_state = self.dropout(last_token_hidden_state)
+
+		# 4️⃣ Classifier Head 통과 → (batch_size, num_labels) 로짓 출력
+		logits = self.classifier_head(last_token_hidden_state)
+
+		# 5️⃣ Log Softmax 적용하여 확률값 반환
+		log_probs = F.log_softmax(logits, dim=-1)
+
+		return log_probs
+
+		#raise NotImplementedError

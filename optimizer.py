@@ -2,6 +2,7 @@ from typing import Callable, Iterable, Tuple
 
 import torch
 from torch.optim import Optimizer
+import math
 
 
 class AdamW(Optimizer):
@@ -38,23 +39,43 @@ class AdamW(Optimizer):
                 if grad.is_sparse:
                     raise RuntimeError("Adam does not support sparse gradients, please consider SparseAdam instead")
 
-                raise NotImplementedError()
+                #raise NotImplementedError()
 
                 # State should be stored in this dictionary
                 state = self.state[p]
+                if len(state) == 0:
+                    state["step"] = 0
+                    state["exp_avg"] = torch.zeros_like(p.data)
+                    state["exp_avg_sq"] = torch.zeros_like(p.data)
 
+                exp_avg, exp_avg_sq = state["exp_avg"], state["exp_avg_sq"]
+                beta1, beta2 = group["betas"]
+
+                state["step"] += 1
+                step_t = state["step"]
                 # Access hyperparameters from the `group` dictionary
-                alpha = group["lr"]
+
 
                 # Update first and second moments of the gradients
+                exp_avg.mul_(beta1).add_(grad, alpha=1-beta1)
+                exp_avg_sq.mul_(beta2).addcmul_(grad, grad, value=1-beta2)
+
 
                 # Bias correction
                 # Please note that we are using the "efficient version" given in
                 # https://arxiv.org/abs/1412.6980
+                bias1 = 1 - beta1 ** step_t
+                bias2 = 1 - beta2 ** step_t
 
+                step_size = group["lr"]
+                if group["correct_bias"]:
+                    step_size = step_size * math.sqrt(bias2) / bias1
                 # Update parameters
 
+                p.data.addcdiv_(exp_avg, (exp_avg_sq.sqrt() + group["eps"]), value=-step_size)
                 # Add weight decay after the main gradient-based updates.
+                if group["weight_decay"] > 0:
+                    p.data.mul_(1 - group["lr"] * group["weight_decay"])
                 # Please note that the learning rate should be incorporated into this update.
 
         return loss

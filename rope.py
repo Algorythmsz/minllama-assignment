@@ -23,6 +23,7 @@ def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     shape = [d if i == 1 or i == ndim - 1 else 1 for i, d in enumerate(x.shape)]
     return freqs_cis.view(shape)
 
+
 def apply_rotary_emb(
     query: torch.Tensor,
     key: torch.Tensor,
@@ -50,13 +51,14 @@ def apply_rotary_emb(
 
     _, seqlen, _, _ = query.shape
     device = query.device
-    # todo
     #
     # Please refer to slide 22 in https://phontron.com/class/anlp2024/assets/slides/anlp-05-transformers.pdf
     # and Section 3 in https://arxiv.org/abs/2104.09864.
 
     # reshape xq and xk to match the complex representation
     query_real, query_imag = query.float().reshape(query.shape[:-1] + (-1, 2)).unbind(-1)
+    #마지막 차원을 제외한 모든 차원의 형태를 유지하고, (-1, 2)을 사용하여 마지막 차원을 2개의 값이 한쌍을 이루도록 변환(d/2, 2)
+    #unbind(-1)은 마지막 차원을 두개의 텐서로 분리.
     key_real, key_imag = key.float().reshape(key.shape[:-1] + (-1, 2)).unbind(-1)
     # This separates each query/key vector into its odd and even indices (assuming *one-indexing*).
     # query_real contains q_1, q_3, q_5, ... and query_imag contains q_2, q_4, q_6, ...
@@ -67,9 +69,22 @@ def apply_rotary_emb(
     # Then, combine these trigonometric values with the tensors query_real, query_imag,
     # key_real, and key_imag.
 
-    raise NotImplementedError
+    #raise NotImplementedError
 
-    query_out = None
-    key_out = None
+    position = torch.arange(seqlen, device=device)
+    indices = torch.arange(head_dim // 2, device=device)
+    angles = position[:, None] / (theta ** (2 * indices / head_dim))
+    #angles.shape = (seqlen) * (head_dim//2)
+
+    cos_values = torch.cos(angles).unsqueeze(0).unsqueeze(2) #1, seqlen, 1, head_dim//2
+    sin_values = torch.sin(angles).unsqueeze(0).unsqueeze(2)
+
+    query_rot_real = query_real * cos_values - query_imag * sin_values
+    query_rot_imag = query_real * sin_values + query_imag * cos_values
+    key_rot_real = key_real * cos_values - key_imag * sin_values
+    key_rot_imag = key_real * sin_values + key_imag * cos_values
+
+    query_out = torch.stack((query_rot_real, query_rot_imag), dim=-1).reshape(query.shape)
+    key_out = torch.stack((key_rot_real, key_rot_imag), dim=-1).reshape(key.shape)
     # Return the rotary position embeddings for the query and key tensors
     return query_out, key_out

@@ -43,8 +43,12 @@ class RMSNorm(torch.nn.Module):
         Returns:
             torch.Tensor: The normalized tensor.
         """
-        # todo
-        raise NotImplementedError
+
+        rms = torch.sqrt(torch.mean(x ** 2, dim=-1, keepdim=True) + self.eps)
+        x_norm = x / rms
+        return x_norm
+        #raise NotImplementedError
+
 
     def forward(self, x):
         """
@@ -66,7 +70,7 @@ class Attention(nn.Module):
         self.n_kv_heads = config.n_heads if config.n_kv_heads is None else config.n_kv_heads
         assert config.n_heads % self.n_kv_heads == 0
         model_parallel_size = 1
-        self.n_local_heads = config.n_heads // model_parallel_size
+        self.n_local_heads = config.n_heads // model_parallel_size #GPU 하나에 head를 몇 개를 올릴지 결정
         self.n_local_kv_heads = self.n_kv_heads // model_parallel_size
         self.n_rep = self.n_local_heads // self.n_local_kv_heads
         self.head_dim = config.dim // config.n_heads
@@ -93,8 +97,13 @@ class Attention(nn.Module):
         Make sure to use attention_dropout (self.attn_dropout) on the computed
         attention matrix before applying it to the value tensor.
         '''
-        # todo
-        raise NotImplementedError
+        d_k = query.shape[-1] # head_dim
+        scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k) #To compute Matmul, transpose seqlen and head_dim of key
+        attention = F.softmax(scores, dim=-1)
+        drop_attention = self.attn_dropout(attention)
+        output = torch.matmul(drop_attention, value)
+        return output
+        #raise NotImplementedError
 
     def forward(
         self,
@@ -196,8 +205,14 @@ class LlamaLayer(nn.Module):
         5) add a residual connection from the unnormalized self-attention output to the
            output of the feed-forward network
         '''
-        # todo
-        raise NotImplementedError
+        #1) layer normalization of the input
+        layer_norm = self.attention_norm(x)
+        attn = self.attention(layer_norm)
+        residual = x + attn
+        attn_norm = self.ffn_norm(residual)
+        FFN = self.feed_forward(attn_norm)
+        return FFN + residual
+        #raise NotImplementedError
 
 class Llama(LlamaPreTrainedModel):
     def __init__(self, config: LlamaConfig):
@@ -274,11 +289,11 @@ class Llama(LlamaPreTrainedModel):
             logits, _ = self(idx_cond)
             logits = logits[:, -1, :] # crop to just the final time step
             # todo
-            raise NotImplementedError
+            #raise NotImplementedError
 
             if temperature == 0.0:
                 # select the single most likely index
-                idx_next = None
+                idx_next = torch.argmax(logits, dim=-1, keepdim=True)
             else:
                 '''
                 Perform temperature sampling:
@@ -289,7 +304,10 @@ class Llama(LlamaPreTrainedModel):
 
                 Note that we are not using top-k sampling/nucleus sampling in this procedure.
                 '''
-                idx_next = None
+                scaled_logits = logits / temperature
+                probs = F.softmax(scaled_logits, dim=-1)
+                idx_next = torch.multinomial(probs, num_samples=1)
+
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
 
